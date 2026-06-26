@@ -1,0 +1,4 @@
+Pillow
+ImageHash
+Flask
+requests

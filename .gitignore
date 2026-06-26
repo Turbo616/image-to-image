@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+
+work/
+results/
+outputs/
+
+vendor/
+
+.env
+*.log
+*.sqlite3
+*.db
+
+Thumbs.db
+.DS_Store
