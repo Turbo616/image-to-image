@@ -1,0 +1,68 @@
+services:
+  image-matcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: image-matcher
+    restart: unless-stopped
+    environment:
+      IMAGE_MATCHER_HOST: 0.0.0.0
+      IMAGE_MATCHER_PORT: 5000
+      IMAGE_MATCHER_SHARE_FOLDER: /data/gallery
+      IMAGE_MATCHER_INDEX_DIR: /data/index
+      IMAGE_MATCHER_SHARE_ID: oygx2026-gallery
+      KIMI_ENABLED: "1"
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      KIMI_MODEL: kimi-k2.6
+      KIMI_CANDIDATE_COUNT: "20"
+      KIMI_RETURN_COUNT: "10"
+      IMAGE_MATCHER_APP_BADGE: 共享图库 / Kimi AI 智能搜索
+      VISUAL_SEARCH_ENABLED: "1"
+      VISUAL_MODEL_ID: /data/index/visual_models/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M
+      VISUAL_BATCH_SIZE: "8"
+      VISUAL_TORCH_THREADS: "6"
+    ports:
+      - "5000:5000"
+    volumes:
+      - /volume1/欧野图库区域:/data/gallery:ro
+      - /volume1/业务-运营共享文件/image_matcher_cloud_index:/data/index:rw
+      - ./results:/app/results
+      - ./work:/app/work
+
+  image-matcher-operation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: image-matcher-operation
+    restart: unless-stopped
+    environment:
+      IMAGE_MATCHER_HOST: 0.0.0.0
+      IMAGE_MATCHER_PORT: 5000
+      IMAGE_MATCHER_SHARE_FOLDER: /data/gallery
+      IMAGE_MATCHER_INDEX_DIR: /data/index
+      IMAGE_MATCHER_SHARE_ID: oygx2026-operation-gallery
+      IMAGE_MATCHER_APP_TITLE: 运营素材图搜索
+      IMAGE_MATCHER_APP_SUBTITLE: 上传参考图，从运营部产品图库中快速找到相似素材。
+      IMAGE_MATCHER_AUDIENCE_TEXT: 运营同事上传一张参考图，系统会同时搜索产品类目和官网原图图库。
+      IMAGE_MATCHER_APP_BADGE: 运营部图库 / 独立指纹库
+    ports:
+      - "5001:5000"
+    volumes:
+      - /volume2/运营部门/产品类目:/data/gallery/产品类目:ro
+      - /volume2/运营部门/产品全类目（官网原图）:/data/gallery/产品全类目（官网原图）:ro
+      - /volume1/业务-运营共享文件/image_matcher_operation_index:/data/index:rw
+      - ./operation-results:/app/results
+      - ./operation-work:/app/work
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: image-matcher-cloudflared
+    restart: unless-stopped
+    depends_on:
+      - image-matcher
+      - image-matcher-operation
+    network_mode: service:image-matcher
+    volumes:
+      - ./cloudflared-config.yml:/etc/cloudflared/config.yml:ro
+      - ./cloudflared-credentials.json:/etc/cloudflared/credentials.json:ro
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run

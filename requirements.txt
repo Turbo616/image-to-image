@@ -2,3 +2,5 @@ Pillow
 ImageHash
 Flask
 requests
+numpy
+transformers

@@ -8,9 +8,16 @@ outputs/
 vendor/
 
 .env
+nas.env
+cloudflare-tunnel-credentials.json
+cloudflared-credentials.json
 *.log
 *.sqlite3
 *.db
+
+nas-deploy-*/
+nas-deploy.tar.gz
+nas-deploy.zip
 
 Thumbs.db
 .DS_Store

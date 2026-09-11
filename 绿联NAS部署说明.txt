@@ -1,0 +1,161 @@
+绿联 NAS 部署图片搜索工具
+========================
+
+适用场景
+--------
+把图片搜索后台和 Cloudflare 通道放到绿联 NAS DXP8800 Pro 上运行。
+配置好以后，你的个人电脑不用再挂着两个黑窗口。
+
+最终效果
+--------
+业务员继续打开：
+https://image-search.1184360066.xyz
+
+后台变成：
+业务员网页 -> Cloudflare -> 绿联 NAS -> 欧野图库区域 / 指纹库
+
+
+一、NAS 需要满足的条件
+--------------------
+1. NAS 必须长期开机。
+2. NAS 必须能直接读取图库文件夹。
+3. NAS 必须能写入指纹库文件夹。
+4. NAS 需要安装 Docker / 容器管理器。
+5. 第一次配置建议临时开启 SSH / 终端。
+
+
+二、先确认 NAS 上的真实路径
+-------------------------
+Windows 看到的路径是：
+\\Oygx2026\欧野图库区域
+\\Oygx2026\业务-运营共享文件\image_matcher_cloud_index
+
+但是 Docker 里面不能直接用 Windows 的 \\ 路径。
+需要在 NAS 终端里确认它们对应的本机路径。
+
+常见可能是类似：
+/volume1/欧野图库区域
+/volume1/业务-运营共享文件/image_matcher_cloud_index
+
+如果不确定，在 NAS 终端里执行：
+
+ls /volume1
+
+如果看不到，再执行：
+
+find / -maxdepth 3 -type d -name "欧野图库区域" 2>/dev/null
+find / -maxdepth 4 -type d -name "image_matcher_cloud_index" 2>/dev/null
+
+
+三、准备部署文件
+--------------
+把当前整个工具文件夹上传到 NAS，例如放到：
+
+/volume1/docker/image-matcher
+
+这个文件夹里至少要有：
+app.py
+image_matcher.py
+synology_cloud.py
+requirements.txt
+Dockerfile
+docker-compose.nas.yml
+nas.env.example
+
+
+四、创建 NAS 专用配置
+------------------
+在 NAS 上把：
+
+nas.env.example
+
+复制一份，改名为：
+
+nas.env
+
+然后编辑里面的内容：
+
+GALLERY_PATH=/volume1/欧野图库区域
+INDEX_PATH=/volume1/业务-运营共享文件/image_matcher_cloud_index
+CLOUDFLARE_TUNNEL_TOKEN=这里粘贴你的CloudflareTunnelToken
+
+注意：
+1. GALLERY_PATH 改成 NAS 里真实的图库路径。
+2. INDEX_PATH 改成 NAS 里真实的指纹库路径。
+3. CLOUDFLARE_TUNNEL_TOKEN 不要发给别人。
+
+
+五、启动服务
+----------
+在 NAS 终端进入工具目录：
+
+cd /volume1/docker/image-matcher
+
+启动：
+
+docker compose --env-file nas.env -f docker-compose.nas.yml up -d --build
+
+检查运行状态：
+
+docker compose --env-file nas.env -f docker-compose.nas.yml ps
+
+查看日志：
+
+docker logs image-matcher --tail 80
+docker logs image-matcher-cloudflared --tail 80
+
+
+六、测试
+------
+先在公司内网打开：
+
+http://NAS的IP:5000/health
+
+如果显示 ok，说明图片搜索后台正常。
+
+再打开：
+
+https://image-search.1184360066.xyz/health
+
+如果也显示 ok，说明 Cloudflare 通道也正常。
+
+最后打开：
+
+https://image-search.1184360066.xyz
+
+上传参考图测试搜索。
+
+
+七、日常使用
+----------
+业务员日常使用时：
+1. 打开 https://image-search.1184360066.xyz
+2. 上传参考图
+3. 不勾选“补建缺失指纹”
+4. 点击开始搜索
+
+只有新增大量图片，或者要继续补齐指纹库时，才勾选“补建缺失指纹”。
+
+
+八、停止和重启
+------------
+停止：
+
+docker compose --env-file nas.env -f docker-compose.nas.yml down
+
+重启：
+
+docker compose --env-file nas.env -f docker-compose.nas.yml restart
+
+更新代码后重新构建：
+
+docker compose --env-file nas.env -f docker-compose.nas.yml up -d --build
+
+
+九、重要提醒
+----------
+1. 不要删除 hash_cache.sqlite3，它就是共享指纹库。
+2. NAS 上运行后，你电脑上的 Image Matcher Server 和 Cloudflare Tunnel 窗口就不用挂着了。
+3. 如果 Cloudflare 网址打不开，先检查 image-matcher-cloudflared 容器是否运行。
+4. 如果搜索打不开图库，先检查 GALLERY_PATH 是否填对。
+5. 如果指纹库不能写入，检查 INDEX_PATH 是否填对，以及该目录权限是否允许写入。

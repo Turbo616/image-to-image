@@ -1,0 +1,9 @@
+tunnel: 73309af8-b8d5-485f-ab77-505d804230c6
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: image-search.1184360066.xyz
+    service: http://127.0.0.1:5000
+  - hostname: operation-image-search.1184360066.xyz
+    service: http://image-matcher-operation:5000
+  - service: http_status:404

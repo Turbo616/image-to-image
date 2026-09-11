@@ -1,0 +1,14 @@
+.git
+__pycache__
+*.pyc
+work
+results
+outputs
+vendor
+.agents
+.codex
+*.log
+*.zip
+*.7z
+*.rar
+nas.env

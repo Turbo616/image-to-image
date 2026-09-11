@@ -16,6 +16,17 @@ import imagehash
 
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+GENERIC_IMAGE_FOLDER_NAMES = {
+    "3d\u6548\u679c\u56fe",
+    "\u6548\u679c\u56fe",
+    "\u6e32\u67d3\u56fe",
+    "\u6210\u54c1\u7167",
+    "\u73b0\u573a\u7167",
+    "\u56fe\u7247",
+    "\u7167\u7247",
+    "image",
+    "images",
+}
 HASH_SIZE = 8
 MAX_HASH_DISTANCE = HASH_SIZE * HASH_SIZE
 ProgressCallback = Callable[[dict], None]
@@ -27,6 +38,18 @@ class Match:
     similarity: float
     filename: str
     path: Path
+
+
+def result_folder_names(path: Path | str) -> tuple[str, str]:
+    normalized = str(path).replace("\\", "/").rstrip("/")
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) < 2:
+        return "-", "-"
+    image_folder = parts[-2]
+    project_folder = image_folder
+    if image_folder.lower() in {name.lower() for name in GENERIC_IMAGE_FOLDER_NAMES} and len(parts) >= 3:
+        project_folder = parts[-3]
+    return project_folder, image_folder
 
 
 def parse_args() -> argparse.Namespace:
@@ -160,12 +183,15 @@ def find_matches(
 def write_csv(matches: list[Match], output_path: Path) -> None:
     with output_path.open("w", newline="", encoding="utf-8-sig") as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(["rank", "similarity", "filename", "path"])
+        writer.writerow(["rank", "similarity", "project_folder", "image_folder", "filename", "path"])
         for match in matches:
+            project_folder, image_folder = result_folder_names(match.path)
             writer.writerow(
                 [
                     match.rank,
                     f"{match.similarity:.2f}",
+                    project_folder,
+                    image_folder,
                     match.filename,
                     str(match.path),
                 ]
@@ -193,6 +219,7 @@ def write_html(
 
     for match in matches:
         image_uri = path_to_file_uri(match.path)
+        project_folder, image_folder = result_folder_names(match.path)
         rows.append(
             f"""
             <article class="card">
@@ -201,6 +228,8 @@ def write_html(
               </a>
               <div class="meta">
                 <strong>#{match.rank} - {match.similarity:.2f}%</strong>
+                <span><b>\u9879\u76ee\u6587\u4ef6\u5939\uff1a</b>{html_escape(project_folder)}</span>
+                <span><b>\u56fe\u7247\u6587\u4ef6\u5939\uff1a</b>{html_escape(image_folder)}</span>
                 <span>{html_escape(match.filename)}</span>
                 <small title="{html_escape(match.path)}">{html_escape(match.path)}</small>
               </div>
