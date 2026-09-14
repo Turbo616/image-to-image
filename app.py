@@ -1521,7 +1521,7 @@ PAGE = r"""
     .cacheBox { min-width: 300px; background: #f7fafc; border: 1px solid var(--line); border-radius: 8px; padding: 12px; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
     .cacheBox strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
     form { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; align-items: end; }
-    label { display: grid; gap: 7px; font-size: 14px; font-weight: 800; }
+    label, .field { display: grid; gap: 7px; font-size: 14px; font-weight: 800; }
     .span2 { grid-column: span 2; }
     .span3 { grid-column: span 3; }
     .span4 { grid-column: span 4; }
@@ -1531,6 +1531,13 @@ PAGE = r"""
     input { width: 100%; min-height: 44px; border: 1px solid #c4d0dc; border-radius: 6px; padding: 10px 11px; font: inherit; background: #fff; color: var(--text); }
     input:focus { outline: 2px solid rgba(15,118,110,.18); border-color: var(--accent); }
     input::placeholder { color: #8a98aa; }
+    .imageInputRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+    .pasteBtn { min-width: 112px; min-height: 44px; border: 1px solid #99d5ce; border-radius: 6px; padding: 0 14px; color: var(--accent); background: #effaf8; font: inherit; font-weight: 900; cursor: pointer; }
+    .pasteBtn:hover { background: #e1f6f2; border-color: var(--accent); }
+    .pasteState { display: none; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 9px; min-height: 52px; padding: 4px 8px; border: 1px solid #b8ddd8; border-radius: 6px; background: #f2fbf9; color: var(--accent); font-size: 12px; font-weight: 800; }
+    .pasteState.show { display: grid; }
+    .pasteState img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; background: #e5edf2; }
+    .pasteState span { overflow-wrap: anywhere; }
     .checkLabel { min-height: 44px; display: flex; align-items: center; gap: 9px; border: 1px solid #c4d0dc; border-radius: 6px; padding: 0 11px; background: #fff; font-weight: 800; }
     .checkLabel input { width: 18px; min-height: 18px; height: 18px; padding: 0; }
     .primaryBtn { width: 100%; min-height: 44px; border: 0; border-radius: 6px; padding: 0 18px; font: inherit; font-weight: 900; color: #fff; background: var(--accent); cursor: pointer; }
@@ -1577,6 +1584,7 @@ PAGE = r"""
     .ai-reason { color: #0f766e; font-size: 12px; line-height: 1.45; padding-top: 6px; border-top: 1px solid var(--line); }
     .empty { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
     @media (max-width: 980px) { form, .advancedGrid, .workspaceHead, .noteRow, .summary, .steps, .stats { grid-template-columns: 1fr; } .span2, .span3, .span4, .span6, .span8, .span9 { grid-column: span 1; } .top { display: block; } .cacheBox { min-width: 0; } }
+    @media (max-width: 560px) { .imageInputRow { grid-template-columns: 1fr; } .pasteBtn { width: 100%; } }
   </style>
 </head>
 <body>
@@ -1602,10 +1610,17 @@ PAGE = r"""
       </div>
 
       <form id="searchForm">
-        <label class="span6">
-          &#23458;&#25143;&#21442;&#32771;&#22270;
-          <input type="file" name="query" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
-        </label>
+        <div class="field span6">
+          <label for="queryInput">&#23458;&#25143;&#21442;&#32771;&#22270;</label>
+          <div class="imageInputRow">
+            <input id="queryInput" type="file" name="query" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
+            <button class="pasteBtn" id="pasteBtn" type="button">&#31896;&#36148;&#22270;&#29255;</button>
+          </div>
+          <div class="pasteState" id="pasteState">
+            <img id="pastePreview" src="" alt="">
+            <span id="pasteName"></span>
+          </div>
+        </div>
         <label class="span3">
           &#30456;&#20284;&#24230;&#38376;&#27099;
           <input type="number" name="threshold" min="0" max="100" step="1" value="80">
@@ -1695,8 +1710,14 @@ PAGE = r"""
     const folderInput = document.getElementById('folderInput');
     const folderVisibleInput = document.getElementById('folderVisibleInput');
     const remoteInput = document.getElementById('remoteInput');
+    const queryInput = document.getElementById('queryInput');
+    const pasteBtn = document.getElementById('pasteBtn');
+    const pasteState = document.getElementById('pasteState');
+    const pastePreview = document.getElementById('pastePreview');
+    const pasteName = document.getElementById('pasteName');
     let timer = null;
     let pollErrorCount = 0;
+    let pastedPreviewUrl = '';
     const POLL_INTERVAL_MS = 2000;
     const POLL_MAX_RETRIES = 30;
 
@@ -1715,6 +1736,50 @@ PAGE = r"""
     };
 
     function text(id, value) { document.getElementById(id).textContent = value; }
+
+    function useImageBlob(blob, filename) {
+      if (!blob) return false;
+      const mime = blob.type || 'image/png';
+      if (!mime.startsWith('image/')) return false;
+      const extension = mime.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+      const file = new File([blob], filename || `pasted-image.${extension}`, { type: mime });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      queryInput.files = transfer.files;
+      if (pastedPreviewUrl) URL.revokeObjectURL(pastedPreviewUrl);
+      pastedPreviewUrl = URL.createObjectURL(file);
+      pastePreview.src = pastedPreviewUrl;
+      pasteName.textContent = `已选择：${file.name}`;
+      pasteState.classList.add('show');
+      return true;
+    }
+
+    queryInput.addEventListener('change', () => {
+      const file = queryInput.files?.[0];
+      if (file) useImageBlob(file, file.name);
+    });
+
+    document.addEventListener('paste', event => {
+      const item = Array.from(event.clipboardData?.items || []).find(entry => entry.type.startsWith('image/'));
+      if (!item) return;
+      event.preventDefault();
+      useImageBlob(item.getAsFile(), 'pasted-image.png');
+    });
+
+    pasteBtn.addEventListener('click', async () => {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const type = item.types.find(value => value.startsWith('image/'));
+          if (type && useImageBlob(await item.getType(type), `pasted-image.${type.split('/')[1].replace('jpeg', 'jpg')}`)) return;
+        }
+        throw new Error('剪贴板中没有图片');
+      } catch (error) {
+        pasteName.textContent = error.message || '无法读取剪贴板图片';
+        pastePreview.removeAttribute('src');
+        pasteState.classList.add('show');
+      }
+    });
 
     document.querySelectorAll('.quick button').forEach(button => {
       button.addEventListener('click', () => {
