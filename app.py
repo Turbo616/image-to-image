@@ -925,6 +925,7 @@ def background_search(
             percent=0,
         )
         candidates: list[tuple[float, Path]] = []
+        ai_candidate_heap: list[tuple[float, int, Path]] = []
         scanned = 0
         discovered = 0
         skipped = 0
@@ -1022,6 +1023,13 @@ def background_search(
                                 if len(pending_cache_records) >= 100:
                                     flush_cache_records()
                             similarity = similarity_from_distance(query_hash - candidate_hash)
+                            remember_ai_candidate(
+                                ai_candidate_heap,
+                                similarity,
+                                image_path.resolve(),
+                                scanned,
+                                KIMI_CANDIDATE_COUNT * 5,
+                            )
                             if similarity >= threshold:
                                 candidates.append((similarity, image_path.resolve()))
                         except Exception:
@@ -1064,16 +1072,41 @@ def background_search(
         flush_cache_records()
         publish_progress(force=True)
 
-        candidates.sort(key=lambda item: (-item[0], str(item[1]).lower()))
-        matches = [
-            Match(
-                rank=index,
-                similarity=round(similarity, 2),
-                filename=path.name,
-                path=path,
-            )
-            for index, (similarity, path) in enumerate(candidates, start=1)
-        ]
+        phash_pool = sorted(ai_candidate_heap, key=lambda item: (-item[0], item[1]))
+        phash_pool_paths = [(score, path) for score, _, path in phash_pool]
+        visual_pool_paths: list[tuple[float, Path]] = []
+        visual_used = False
+        if VISUAL_SEARCH_ENABLED and visual_index.count() >= 100:
+            set_job(job_id, message="本地 AI 正在复核补建后的搜索结果", percent=98)
+            visual_candidates = visual_index.search(query_path, limit=KIMI_CANDIDATE_COUNT * 5)
+            visual_pool_paths = [(item.similarity, item.path) for item in visual_candidates]
+            visual_used = bool(visual_pool_paths)
+
+        ai_pool_paths = hybrid_candidate_pool(
+            phash_pool_paths,
+            visual_pool_paths,
+            KIMI_CANDIDATE_COUNT,
+        )
+        ai_reasons: dict[str, str] = {}
+        ai_used = False
+        if KIMI_ENABLED and KIMI_API_KEY and ai_pool_paths:
+            set_job(job_id, message="Kimi 正在复核补建后的混合候选案例", percent=99)
+            try:
+                matches, ai_reasons = kimi_rank_candidates(query_path, ai_pool_paths)
+                ai_used = True
+            except Exception:
+                matches = fallback_hybrid_matches(ai_pool_paths)
+        else:
+            candidates.sort(key=lambda item: (-item[0], str(item[1]).lower()))
+            matches = [
+                Match(
+                    rank=index,
+                    similarity=round(similarity, 2),
+                    filename=path.name,
+                    path=path,
+                )
+                for index, (similarity, path) in enumerate(candidates, start=1)
+            ]
         csv_path = output_dir / "matches.csv"
         html_path = output_dir / "preview.html"
         write_csv(matches, csv_path)
@@ -1083,7 +1116,7 @@ def background_search(
             job_id,
             status="done",
             stage="done",
-            message="Finished",
+            message=("指纹补建完成，AI + Kimi 混合搜索完成" if ai_used else "指纹补建及本地 AI 搜索完成"),
             total=scanned,
             scanned=scanned,
             skipped=skipped,
@@ -1096,7 +1129,9 @@ def background_search(
             html_url=f"/download/{encode_path(html_path)}",
             result_dir=str(output_dir),
             query_url=f"/image/{encode_path(query_path)}",
-            matches=[match_to_json(match) for match in matches],
+            matches=[match_to_json(match, ai_reasons) for match in matches],
+            ai_used=ai_used,
+            visual_used=visual_used,
         )
     except Exception as exc:
         set_job(job_id, status="error", stage="error", message=str(exc), percent=0)
